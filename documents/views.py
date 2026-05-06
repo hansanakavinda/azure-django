@@ -24,6 +24,11 @@ from .services.azure_service import azure_service
 
 from .permissions import IsDocumentOwner
 
+# local testing
+import os
+from django.conf import settings
+
+
 
 class PDFDocumentViewSet(mixins.ListModelMixin,          # GET /api/pdfs/
     mixins.RetrieveModelMixin,      # GET /api/pdfs/{id}/
@@ -43,7 +48,7 @@ class PDFDocumentViewSet(mixins.ListModelMixin,          # GET /api/pdfs/
     ordering = ['-uploaded_at']
 
     def get_serializer_class(self):
-        if self.action == 'upload':
+        if self.action in ['upload', 'test_upload']:
             return PDFUploadSerializer
         if self.action in ['update', 'partial_update']:
             return PDFDocumentUpdateSerializer
@@ -60,6 +65,94 @@ class PDFDocumentViewSet(mixins.ListModelMixin,          # GET /api/pdfs/
             user=self.request.user,
             is_active=True
         )
+
+    @action(detail=False, methods=['post'], url_path='test-upload')
+    def test_upload(self, request):
+        """
+        POST /api/pdfs/test-upload/
+
+        Same validation as the real upload endpoint.
+        Saves files locally instead of Azure.
+        No database records created.
+        For testing purposes only.
+        """
+        serializer = PDFUploadSerializer(data=request.data)
+
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        files = serializer.validated_data['files']
+        results = []
+        success_count = 0
+        fail_count = 0
+
+        # Create uploads directory if it does not exist
+        upload_dir = settings.MEDIA_ROOT
+        os.makedirs(upload_dir, exist_ok=True)
+
+        for file in files:
+            try:
+                # Build a safe unique filename
+                # Same logic as azure service but saves locally
+                from datetime import datetime
+                import uuid
+
+                date_str = datetime.now().strftime('%Y-%m-%d')
+                unique_id = str(uuid.uuid4())[:8]
+                safe_filename = "".join(
+                    c for c in file.name
+                    if c.isalnum() or c in '._-'
+                ).strip()
+
+                final_filename = f"{date_str}_{unique_id}_{safe_filename}"
+                file_path = os.path.join(upload_dir, final_filename)
+
+                # Write the file to disk
+                with open(file_path, 'wb') as destination:
+                    for chunk in file.chunks():
+                        destination.write(chunk)
+                        #                  ↑
+                        #   chunks() reads the file in pieces
+                        #   important for large files
+                        #   avoids loading entire file into memory
+
+                results.append({
+                    'filename': file.name,
+                    'status': 'success',
+                    'saved_as': final_filename,
+                    'local_path': file_path,
+                    'accessible_at': request.build_absolute_uri(
+                        f"{settings.MEDIA_URL}{final_filename}"
+                    ),
+                    'file_size': file.size,
+                })
+                success_count += 1
+
+            except Exception as e:
+                results.append({
+                    'filename': file.name,
+                    'status': 'failed',
+                    'error': str(e),
+                })
+                fail_count += 1
+
+        if success_count == 0:
+            response_status = status.HTTP_400_BAD_REQUEST
+        elif fail_count > 0:
+            response_status = status.HTTP_207_MULTI_STATUS
+        else:
+            response_status = status.HTTP_201_CREATED
+
+        return Response({
+            'uploaded': success_count,
+            'failed': fail_count,
+            'total': len(files),
+            'save_location': str(settings.MEDIA_ROOT),
+            'results': results,
+        }, status=response_status)
 
     @action(detail=False, methods=['post'])
     def upload(self, request):
@@ -199,7 +292,7 @@ class PDFDocumentViewSet(mixins.ListModelMixin,          # GET /api/pdfs/
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
-    # Add these to the bottom of documents/views.py
+
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -256,3 +349,6 @@ def login_view(request):
 def logout_view(request):
     request.user.auth_token.delete()
     return Response({'message': 'Logged out successfully'})
+
+
+    
