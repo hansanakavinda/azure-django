@@ -17,8 +17,8 @@ from .serializers import (
     DownloadURLSerializer,
 )
 from .services.azure_service import azure_service
-
 from .permissions import IsDocumentOwner
+from pdf_storage.responses import success_response, error_response
 
 
 class PDFDocumentViewSet(
@@ -52,6 +52,59 @@ class PDFDocumentViewSet(
             user=self.request.user,
             is_active=True
         )
+    
+    def list(self, request, *args, **kwargs):
+        """
+        GET /api/pdfs/
+        """
+
+        queryset = self.filter_queryset(self.get_queryset())
+
+        page = self.paginate_queryset(queryset)
+
+        # If pagination is enabled
+        if page is not None:
+
+            serializer = self.get_serializer(page, many=True)
+
+            paginated_response = self.get_paginated_response(
+                serializer.data
+            )
+
+            return success_response(
+                data={
+                    'count': paginated_response.data['count'],
+                    'next': paginated_response.data['next'],
+                    'previous': paginated_response.data['previous'],
+                    'documents': paginated_response.data['results'],
+                },
+                message='Documents retrieved successfully.',
+            )
+
+        # If pagination is NOT enabled
+        serializer = self.get_serializer(queryset, many=True)
+
+        return success_response(
+            data={
+                'documents': serializer.data,
+            },
+            message='Documents retrieved successfully.',
+        )
+
+    def retrieve(self, request, *args, **kwargs):
+        """
+        GET /api/pdfs/{id}/
+        """
+
+        instance = self.get_object()
+
+        serializer = self.get_serializer(instance)
+
+        return success_response(
+            data=serializer.data,
+            message='Document retrieved successfully.',
+        )
+
 
     @action(detail=False, methods=['post'])
     def upload(self, request):
@@ -67,9 +120,9 @@ class PDFDocumentViewSet(
         serializer = self.get_serializer(data=request.data)
 
         if not serializer.is_valid():
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST
+            return error_response(
+                errors=serializer.errors,
+                message="Invalid data provided."
             )
 
         files = serializer.validated_data['files']
@@ -116,6 +169,11 @@ class PDFDocumentViewSet(
         # Choose response status based on results
         if success_count == 0:
             response_status = status.HTTP_400_BAD_REQUEST
+            return error_response(
+                errors=results,
+                message="All uploads failed.",
+                status_code=response_status
+            )
         elif fail_count > 0:
             response_status = status.HTTP_207_MULTI_STATUS
             #                        ↑
@@ -124,12 +182,16 @@ class PDFDocumentViewSet(
         else:
             response_status = status.HTTP_201_CREATED
 
-        return Response({
-            'uploaded': success_count,
-            'failed': fail_count,
-            'total': len(files),
-            'results': results,
-        }, status=response_status)
+        return success_response(
+            data={
+                'uploaded': success_count,
+                'failed': fail_count,
+                'total': len(files),
+                'results': results,
+            },
+            message=f"Upload completed: {success_count} succeeded, {fail_count} failed.",
+            status=response_status
+        )
 
     @action(detail=True, methods=['get'])
     def download(self, request, pk=None):
@@ -143,16 +205,24 @@ class PDFDocumentViewSet(
         #               ↑
         #   get_object() checks that document belongs
         #   to request.user automatically because of get_queryset()
-        #   If not found → 404 automatically
+        if not document:
+            return error_response(
+                errors='Document not found.',
+                message="Document not found.",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
 
         url_data = azure_service.generate_download_url(
             blob_name=document.blob_name,
             expiry_hours=1,
         )
 
-        return Response({
-            **url_data,
-            'filename': document.original_filename,
-        })
+        return success_response(
+            data={
+                **url_data,
+                'filename': document.original_filename,
+            },
+            message="Download URL generated successfully."
+        )
 
     

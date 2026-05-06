@@ -4,7 +4,7 @@ from rest_framework.views import exception_handler
 from rest_framework.response import Response
 from rest_framework import status
 import logging
-
+from pdf_storage.responses import error_response
 # Get a logger for tracking errors
 logger = logging.getLogger(__name__)
 
@@ -27,16 +27,11 @@ def custom_exception_handler(exc, context):
         # By default DRF returns different formats for different errors
         # We want everything to look the same
 
-        error_data = {
-            'error': {
-                'status_code': response.status_code,
-                'message': _get_error_message(response),
-                'details': response.data,
-            }
-        }
-
-        response.data = error_data
-        return response
+        return error_response(
+            errors=response.data,
+            message=_get_error_message(response),
+            status_code=response.status_code
+        )
 
     # If response is None, DRF did not handle it
     # This means it is an unexpected server error (500)
@@ -50,17 +45,10 @@ def custom_exception_handler(exc, context):
         }
     )
 
-    return Response(
-        {
-            'error': {
-                'status_code': 500,
-                'message': 'An unexpected error occurred. Please try again later.',
-                'details': None,
-                # Notice: we do NOT return str(exc) here
-                # Never expose internal error details to clients
-            }
-        },
-        status=status.HTTP_500_INTERNAL_SERVER_ERROR
+    return error_response(
+        errors=None,
+        message='An unexpected error occurred. Please try again later.',
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
     )
 
 

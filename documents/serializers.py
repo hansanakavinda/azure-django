@@ -112,16 +112,6 @@ class PDFDocumentSerializer(serializers.ModelSerializer):
         ]
 
 
-class PDFDocumentUpdateSerializer(serializers.ModelSerializer):
-    """
-    Used only for updating — user can only change description.
-    """
-
-    class Meta:
-        model = PDFDocument
-        fields = ['description']
-
-
 class DownloadURLSerializer(serializers.Serializer):
     """
     Used for returning a temporary download URL.
