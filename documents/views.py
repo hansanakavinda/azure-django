@@ -1,12 +1,9 @@
 # documents/views.py
 
 from rest_framework import viewsets, status, mixins
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import action
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from django.contrib.auth.models import User
-from django.contrib.auth import authenticate
-from rest_framework.authtoken.models import Token
+from rest_framework.permissions import IsAuthenticated
 
 # filtering and searching
 from django_filters.rest_framework import DjangoFilterBackend
@@ -17,7 +14,6 @@ from .models import PDFDocument
 from .serializers import (
     PDFUploadSerializer,
     PDFDocumentSerializer,
-    PDFDocumentUpdateSerializer,
     DownloadURLSerializer,
 )
 from .services.azure_service import azure_service
@@ -25,15 +21,13 @@ from .services.azure_service import azure_service
 from .permissions import IsDocumentOwner
 
 
-class PDFDocumentViewSet(mixins.ListModelMixin,          # GET /api/pdfs/
+class PDFDocumentViewSet(
+    mixins.ListModelMixin,          # GET /api/pdfs/
     mixins.RetrieveModelMixin,      # GET /api/pdfs/{id}/
-    mixins.DestroyModelMixin,       # DELETE /api/pdfs/{id}/
-    mixins.UpdateModelMixin,        # PATCH /api/pdfs/{id}/
     viewsets.GenericViewSet         # base class
     ):
-    permission_classes = [IsAuthenticated]
-    #                         ↑
-    #              Every endpoint here requires login
+
+    permission_classes = [IsAuthenticated] # check if user is authenticated
 
     filterset_class = PDFDocumentFilter
 
@@ -45,8 +39,6 @@ class PDFDocumentViewSet(mixins.ListModelMixin,          # GET /api/pdfs/
     def get_serializer_class(self):
         if self.action == 'upload':
             return PDFUploadSerializer
-        if self.action in ['update', 'partial_update']:
-            return PDFDocumentUpdateSerializer
         if self.action == 'download':
             return DownloadURLSerializer
         return PDFDocumentSerializer
@@ -163,96 +155,4 @@ class PDFDocumentViewSet(mixins.ListModelMixin,          # GET /api/pdfs/
             'filename': document.original_filename,
         })
 
-    def destroy(self, request, pk=None):
-        """
-        DELETE /api/pdfs/{id}/
-
-        Soft delete — marks as inactive in DB.
-        Also removes from Azure.
-        """
-        document = self.get_object()
-
-        # Delete from Azure first
-        azure_service.delete_file(document.blob_name)
-
-        # Soft delete in database
-        document.is_active = False
-        document.save()
-
-        return Response(
-            {'message': 'Document deleted successfully'},
-            status=status.HTTP_200_OK
-        )
-
-    def update(self, request, pk=None, **kwargs):
-        """PATCH /api/pdfs/{id}/ — update description only."""
-        document = self.get_object()
-        serializer = PDFDocumentUpdateSerializer(
-            document,
-            data=request.data,
-            partial=True
-        )
-
-        if serializer.is_valid():
-            serializer.save()
-            return Response(PDFDocumentSerializer(document).data)
-
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
-    # Add these to the bottom of documents/views.py
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def register(request):
-    username = request.data.get('username')
-    password = request.data.get('password')
-    email = request.data.get('email', '')
-
-    if not username or not password:
-        return Response(
-            {'error': 'Username and password required'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    if User.objects.filter(username=username).exists():
-        return Response(
-            {'error': 'Username already taken'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    user = User.objects.create_user(
-        username=username,
-        password=password,
-        email=email,
-    )
-    token = Token.objects.create(user=user)
-
-    return Response({
-        'token': token.key,
-        'user_id': user.id,
-        'username': user.username,
-    }, status=status.HTTP_201_CREATED)
-
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def login_view(request):
-    username = request.data.get('username')
-    password = request.data.get('password')
-
-    user = authenticate(username=username, password=password)
-
-    if not user:
-        return Response(
-            {'error': 'Invalid credentials'},
-            status=status.HTTP_401_UNAUTHORIZED
-        )
-
-    token, created = Token.objects.get_or_create(user=user)
-    return Response({'token': token.key, 'user_id': user.id})
-
-
-@api_view(['POST'])
-def logout_view(request):
-    request.user.auth_token.delete()
-    return Response({'message': 'Logged out successfully'})

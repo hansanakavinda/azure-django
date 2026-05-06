@@ -41,6 +41,7 @@ INSTALLED_APPS = [
     'django_filters',
     'corsheaders',
     # Your apps
+    'authentication',
     'documents',
 ]
 
