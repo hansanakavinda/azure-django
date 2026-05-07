@@ -29,6 +29,14 @@ ALLOWED_HOSTS = ["*"]  # restrict in production
 AZURE_CONNECTION_STRING = config('AZURE_CONNECTION_STRING')
 AZURE_CONTAINER_NAME = config('AZURE_CONTAINER_NAME')
 
+# pdf_storage/settings.py
+
+# Cosmos DB Config (Default to dummy values)
+COSMOS_URI = config('COSMOS_URI')
+COSMOS_KEY = config('COSMOS_KEY')
+COSMOS_DATABASE = config('COSMOS_DATABASE')
+COSMOS_CONTAINER = config('COSMOS_CONTAINER')
+
 WEBHOOK_BASE_URL = config('WEBHOOK_BASE_URL')
 
 # File upload settings
@@ -58,6 +66,7 @@ INSTALLED_APPS = [
     # Your apps
     'authentication',
     'documents',
+    'search',
 ]
 
 MIDDLEWARE = [
