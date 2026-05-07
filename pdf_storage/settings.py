@@ -23,7 +23,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = ["*"]  # restrict in production
+ALLOWED_HOSTS = config('ALLOWED_HOSTS').split(',')
 
 # Azure settings
 AZURE_CONNECTION_STRING = config('AZURE_CONNECTION_STRING')
@@ -38,6 +38,7 @@ COSMOS_DATABASE = config('COSMOS_DATABASE')
 COSMOS_CONTAINER = config('COSMOS_CONTAINER')
 
 WEBHOOK_BASE_URL = config('WEBHOOK_BASE_URL')
+WEBHOOK_SECRET = config('WEBHOOK_SECRET')
 
 # File upload settings
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024     # 10MB per file
@@ -63,6 +64,7 @@ INSTALLED_APPS = [
     'rest_framework.authtoken',
     'django_filters',
     'corsheaders',
+    'drf_spectacular',
     # Your apps
     'authentication',
     'documents',
@@ -139,6 +141,23 @@ REST_FRAMEWORK = {
     'PAGE_SIZE': 20,
 
     'EXCEPTION_HANDLER': 'pdf_storage.exceptions.custom_exception_handler',
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '20/hour',
+        'user': '200/hour',
+        'upload': '50/day',
+        'login': '10/hour',
+    },
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
+}
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Resume Scoring API',
+    'DESCRIPTION': 'API for uploading CVs and matching against job descriptions',
+    'VERSION': '1.0.0',
 }
 
 

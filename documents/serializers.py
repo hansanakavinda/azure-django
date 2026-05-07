@@ -56,7 +56,14 @@ class PDFUploadSerializer(serializers.Serializer):
             # This is more reliable than checking the extension
             file.seek(0)                        # go to start of file
             header = file.read(8)               # read first 8 bytes
+            mime_type = magic.from_buffer(file.read(2048), mime=True)
             file.seek(0)                        # reset back to start
+
+            if mime_type not in settings.ALLOWED_FILE_TYPES:
+                file_errors.append(
+                    f"Invalid file type: {mime_type}. "
+                    "Please upload PDF files only."
+                )
 
             # PDF files always start with %PDF
             if not header.startswith(b'%PDF'):

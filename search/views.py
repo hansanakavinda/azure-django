@@ -14,9 +14,28 @@ from .serializers import (
 from .services import cosmos_candidate_service
 from documents.models import UploadBatch
 from pdf_storage.responses import success_response, error_response
+from pdf_storage import settings
 
 logger = logging.getLogger(__name__)
 
+import hmac
+import hashlib
+
+def verify_webhook_signature(request, secret):
+    """
+    Azure sends a signature in the header.
+    You verify it using a shared secret.
+    """
+    signature = request.headers.get('X-Webhook-Signature', '')
+    payload = request.body
+
+    expected = hmac.new(
+        secret.encode(),
+        payload,
+        hashlib.sha256
+    ).hexdigest()
+
+    return hmac.compare_digest(signature, expected)
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -27,6 +46,11 @@ def webhook_receive(request):
     Azure calls this when ranking is complete.
     Saves candidate results to SearchResult table.
     """
+    if not verify_webhook_signature(request, settings.WEBHOOK_SECRET):
+        return error_response(
+            message='Invalid signature.',
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
     serializer = WebhookPayloadSerializer(data=request.data)
 
     if not serializer.is_valid():
