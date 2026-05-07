@@ -61,7 +61,7 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     # Third party
     'rest_framework',
-    'rest_framework.authtoken',
+    'rest_framework_simplejwt.token_blacklist',
     'django_filters',
     'corsheaders',
     'drf_spectacular',
@@ -124,7 +124,7 @@ DATABASES = {
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.TokenAuthentication',
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
@@ -159,6 +159,17 @@ SPECTACULAR_SETTINGS = {
     'TITLE': 'Resume Scoring API',
     'DESCRIPTION': 'API for uploading CVs and matching against job descriptions',
     'VERSION': '1.0.0',
+}
+
+# Configure Simple JWT lifetimes & settings
+from datetime import timedelta
+
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),   # Short lifetime for security
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),      # Long lifetime for seamless UX
+    'ROTATE_REFRESH_TOKENS': True,                    # Issues a new refresh token on use
+    'BLACKLIST_AFTER_ROTATION': True,                 # Prevents old refresh tokens from being reused
+    'AUTH_HEADER_TYPES': ('Bearer',),                 # Uses "Bearer <token>" instead of "Token <token>"
 }
 
 

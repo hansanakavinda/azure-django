@@ -2,14 +2,48 @@
 
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.permissions import AllowAny
-from rest_framework.response import Response
 from rest_framework import status
-from rest_framework.authtoken.models import Token
+from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.exceptions import TokenError
+from rest_framework_simplejwt.views import TokenRefreshView
 from django.contrib.auth import authenticate
 from django.contrib.auth.models import User
-from .serializers import RegisterSerializer, LoginSerializer
+
+from .serializers import RegisterSerializer, LoginSerializer, LogoutSerializer
 from pdf_storage.responses import success_response, error_response
 
+
+def get_tokens_for_user(user):
+    """Generate access and refresh token manually for a user."""
+    refresh = RefreshToken.for_user(user)
+    return {
+        'refresh': str(refresh),
+        'access': str(refresh.access_token),
+    }
+
+# authentication/views.py
+
+
+class CustomTokenRefreshView(TokenRefreshView):
+    """
+    Custom refresh view to format the output response matching
+    our standardized success/error JSON response schema.
+    """
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+
+        try:
+            serializer.is_valid(raise_exception=True)
+            return success_response(
+                data=serializer.validated_data,
+                message='Token refreshed successfully.'
+            )
+        except TokenError as e:
+            return error_response(
+                message='Invalid or expired refresh token.',
+                errors={'detail': str(e)},
+                status_code=status.HTTP_401_UNAUTHORIZED
+            )
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
@@ -20,7 +54,7 @@ def register(request):
     if not serializer.is_valid():
         return error_response(
             errors=serializer.errors,
-            message="Invalid data provided."
+            message='Validation failed.',
         )
 
     user = User.objects.create_user(
@@ -28,16 +62,17 @@ def register(request):
         password=serializer.validated_data['password'],
         email=serializer.validated_data.get('email', ''),
     )
-    token = Token.objects.create(user=user)
+
+    tokens = get_tokens_for_user(user)
 
     return success_response(
         data={
-            'token': token.key,
             'user_id': user.id,
             'username': user.username,
+            **tokens,
         },
-        message="User registered successfully.",
-        status=status.HTTP_201_CREATED
+        message='Registration successful.',
+        status_code=status.HTTP_201_CREATED,
     )
 
 
@@ -50,7 +85,7 @@ def login(request):
     if not serializer.is_valid():
         return error_response(
             errors=serializer.errors,
-            message="Invalid data provided."
+            message='Validation failed.',
         )
 
     user = authenticate(
@@ -60,24 +95,47 @@ def login(request):
 
     if not user:
         return error_response(
-            errors='Invalid credentials.',
-            message="Invalid credentials provided."
+            message='Invalid credentials.',
+            status_code=status.HTTP_401_UNAUTHORIZED,
         )
 
-    token, created = Token.objects.get_or_create(user=user)
+    tokens = get_tokens_for_user(user)
 
     return success_response(
         data={
-            'token': token.key,
             'user_id': user.id,
             'username': user.username,
+            **tokens,
         },
-        message="User logged in successfully."
+        message='Login successful.',
     )
 
 
 @api_view(['POST'])
 def logout(request):
-    """POST /api/auth/logout/"""
-    request.user.auth_token.delete()
-    return success_response(message="User logged out successfully.")
+    """
+    POST /api/auth/logout/
+    
+    Pass the 'refresh' token in the body to blacklist it securely.
+    """
+    serializer = LogoutSerializer(data=request.data)
+
+    if not serializer.is_valid():
+        return error_response(
+            errors=serializer.errors,
+            message='Validation failed.',
+        )
+
+    try:
+        # Blacklist the refresh token so it cannot be used again
+        token = RefreshToken(serializer.validated_data['refresh'])
+        token.blacklist()
+
+        return success_response(
+            message='Logged out successfully. Token blacklisted.',
+        )
+    except TokenError:
+        return error_response(
+            message='Token is already invalid or expired.',
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
