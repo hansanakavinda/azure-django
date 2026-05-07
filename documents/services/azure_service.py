@@ -9,6 +9,7 @@ from azure.core.exceptions import AzureError
 from django.conf import settings
 from datetime import datetime, timedelta, timezone
 import uuid
+import json
 
 
 class AzureStorageService:
@@ -31,7 +32,7 @@ class AzureStorageService:
         """
         Create a unique organized path for the file in Azure.
 
-        Result: user_1/2024-01-15/a3f9b2c1_resume.pdf
+        Result: 2024-01-15/a3f9b2c1_resume.pdf
         """
         date_str = datetime.now().strftime('%Y-%m-%d')
         unique_id = str(uuid.uuid4())[:8]
@@ -43,9 +44,9 @@ class AzureStorageService:
         ).strip()
         safe_filename = safe_filename.replace(' ', '_')
 
-        return f"user_{user_id}/{date_str}/{unique_id}_{safe_filename}"
+        return f"resumes/{unique_id}_{safe_filename}"
 
-    def upload_file(self, file, user_id, original_filename):
+    def upload_file(self, file, user_id, original_filename, metadata=None):
         """
         Upload a single file to Azure Blob Storage.
 
@@ -63,6 +64,7 @@ class AzureStorageService:
             file,
             overwrite=False,
             content_settings=self._get_content_settings(),
+            metadata=metadata or {}
         )
 
         azure_url = blob_client.url
@@ -72,10 +74,30 @@ class AzureStorageService:
             'azure_url': azure_url,
         }
 
-    def _get_content_settings(self):
+    def upload_signal_file(self, batch_id, signal_data):
+        """
+        Upload _batch_complete.json as the signal file.
+        Azure Function watches for this file.
+        When it appears, Azure knows all PDFs are uploaded
+        and processing can begin.
+        """
+        blob_name = f"process_requests/batch_{batch_id}/_batch_complete.json"
+        blob_client = self.container_client.get_blob_client(blob_name)
+
+        blob_client.upload_blob(
+            json.dumps(signal_data, indent=2),
+            overwrite=True,
+            content_settings=self._get_content_settings(
+                content_type='application/json'
+            ),
+        )
+
+        return blob_name
+    
+    def _get_content_settings(self, content_type='application/pdf'):
         """Set the content type so browsers know it is a PDF."""
         from azure.storage.blob import ContentSettings
-        return ContentSettings(content_type='application/pdf')
+        return ContentSettings(content_type=content_type)
 
     def generate_download_url(self, blob_name, expiry_hours=1):
         """

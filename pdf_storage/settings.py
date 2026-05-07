@@ -25,6 +25,21 @@ DEBUG = config('DEBUG', default=False, cast=bool)
 
 ALLOWED_HOSTS = ["*"]  # restrict in production
 
+# Azure settings
+AZURE_CONNECTION_STRING = config('AZURE_CONNECTION_STRING')
+AZURE_CONTAINER_NAME = config('AZURE_CONTAINER_NAME')
+
+WEBHOOK_BASE_URL = config('WEBHOOK_BASE_URL')
+
+# File upload settings
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024     # 10MB per file
+ALLOWED_FILE_TYPES = ['application/pdf']
+
+CORS_ALLOW_ALL_ORIGINS = True           # restrict in production
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
+
 
 # Application definition
 
@@ -116,18 +131,6 @@ REST_FRAMEWORK = {
 
     'EXCEPTION_HANDLER': 'pdf_storage.exceptions.custom_exception_handler',
 }
-
-# Azure settings
-AZURE_CONNECTION_STRING = config('AZURE_CONNECTION_STRING')
-AZURE_CONTAINER_NAME = config('AZURE_CONTAINER_NAME')
-
-# File upload settings
-MAX_UPLOAD_SIZE = 10 * 1024 * 1024     # 10MB per file
-ALLOWED_FILE_TYPES = ['application/pdf']
-
-CORS_ALLOW_ALL_ORIGINS = True           # restrict in production
-
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 
 # Password validation

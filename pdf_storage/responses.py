@@ -17,7 +17,7 @@ def success_response(data=None, message="Success", status_code=status.HTTP_200_O
     }, status=status_code)
 
 
-def error_response(errors=None, message="Something went wrong", status_code=status.HTTP_400_BAD_REQUEST):
+def error_response(errors=None, message="Something went wrong", data=None, status_code=status.HTTP_400_BAD_REQUEST):
     """
     Standard error response.
     Use this everywhere instead of Response() directly.
@@ -25,6 +25,6 @@ def error_response(errors=None, message="Something went wrong", status_code=stat
     return Response({
         'success': False,
         'message': message,
-        'data': None,
+        'data': data,
         'errors': errors,
     }, status=status_code)

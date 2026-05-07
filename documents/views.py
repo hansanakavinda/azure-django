@@ -1,4 +1,5 @@
 # documents/views.py
+from pdf_storage import settings
 
 from rest_framework import viewsets, status, mixins
 from rest_framework.decorators import action
@@ -10,11 +11,12 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from .filters import PDFDocumentFilter
 
-from .models import PDFDocument
+from .models import PDFDocument, UploadBatch
 from .serializers import (
     PDFUploadSerializer,
     PDFDocumentSerializer,
     DownloadURLSerializer,
+    UploadBatchSerializer,
 )
 from .services.azure_service import azure_service
 from .permissions import IsDocumentOwner
@@ -122,11 +124,22 @@ class PDFDocumentViewSet(
         if not serializer.is_valid():
             return error_response(
                 errors=serializer.errors,
-                message="Invalid data provided."
+                message="Validation failed."
             )
 
         files = serializer.validated_data['files']
-        description = serializer.validated_data.get('description', '')
+        job_description = serializer.validated_data.get('job_description', '')
+        search_all = serializer.validated_data.get('search_all', True)
+
+        is_search_request = bool(job_description.strip())
+
+        batch = None
+        if is_search_request:
+            batch = UploadBatch.objects.create(
+                user=request.user,
+                job_description=job_description,
+                search_all=search_all
+            )
 
         results = []
         success_count = 0
@@ -134,21 +147,29 @@ class PDFDocumentViewSet(
 
         for file in files:
             try:
+                blob_metadata = None
+
+                if batch:
+                    blob_metadata = {
+                        'batch_id': str(batch.id),
+                    }
+
                 # Upload to Azure
                 azure_result = azure_service.upload_file(
                     file=file,
                     user_id=request.user.id,
                     original_filename=file.name,
+                    metadata=blob_metadata
                 )
 
                 # Save metadata to database
                 document = PDFDocument.objects.create(
                     user=request.user,
+                    batch=batch,
                     original_filename=file.name,
                     blob_name=azure_result['blob_name'],
                     azure_url=azure_result['azure_url'],
                     file_size=file.size,
-                    description=description,
                 )
 
                 results.append({
@@ -174,23 +195,41 @@ class PDFDocumentViewSet(
                 message="All uploads failed.",
                 status_code=response_status
             )
-        elif fail_count > 0:
-            response_status = status.HTTP_207_MULTI_STATUS
-            #                        ↑
-            #              207 = Multi-Status
-            #              Means "some worked, some did not"
-        else:
-            response_status = status.HTTP_201_CREATED
+
+        # Build response
+        response_data = {
+            'uploaded': success_count,
+            'failed': fail_count,
+            'total': len(files),
+            'results': results,
+        }
+
+        if batch and success_count > 0:
+            try:
+                signal_data = {
+                    'batch_id': str(batch.id),
+                    'job_description': job_description,
+                    'search_all': search_all,
+                    'callback_url': f"{settings.WEBHOOK_BASE_URL}/api/search/webhook/",
+                }
+
+                azure_service.upload_signal_file(
+                    batch_id=batch.id,
+                    signal_data=signal_data,
+                )
+
+            except Exception as e:
+                return error_response(
+                    errors={'signal': str(e)},
+                    message='Files uploaded but failed to start processing.',
+                    data=response_data,
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
 
         return success_response(
-            data={
-                'uploaded': success_count,
-                'failed': fail_count,
-                'total': len(files),
-                'results': results,
-            },
-            message=f"Upload completed: {success_count} succeeded, {fail_count} failed.",
-            status=response_status
+            data=response_data,
+            message="Files uploaded with some failures." if fail_count > 0 else "All files uploaded successfully.",
+            status_code=status.HTTP_201_CREATED,
         )
 
     @action(detail=True, methods=['get'])
