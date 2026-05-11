@@ -2,7 +2,7 @@
 from pdf_storage import settings
 
 from rest_framework import viewsets, status, mixins
-from rest_framework.decorators import action
+from rest_framework.decorators import action, throttle_classes
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 
@@ -21,6 +21,7 @@ from .serializers import (
 from .services.azure_service import azure_service
 from .permissions import IsDocumentOwner
 from pdf_storage.responses import success_response, error_response
+from pdf_storage.throttles import PdfThrottle, UploadThrottle
 
 
 class PDFDocumentViewSet(
@@ -30,7 +31,7 @@ class PDFDocumentViewSet(
     ):
 
     permission_classes = [IsAuthenticated] # check if user is authenticated
-
+    throttle_scope = 'pdfs' # apply rate limiting
     filterset_class = PDFDocumentFilter
 
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -54,7 +55,7 @@ class PDFDocumentViewSet(
             user=self.request.user,
             is_active=True
         )
-    
+
     def list(self, request, *args, **kwargs):
         """
         GET /api/pdfs/
@@ -108,7 +109,7 @@ class PDFDocumentViewSet(
         )
 
 
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'], throttle_classes=[UploadThrottle])
     def upload(self, request):
         """
         POST /api/pdfs/upload/

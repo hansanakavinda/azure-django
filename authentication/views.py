@@ -1,7 +1,8 @@
 # authentication/views.py
 
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny
+from pdf_storage.throttles import LoginThrottle
 from rest_framework import status
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.exceptions import TokenError
@@ -78,9 +79,11 @@ def register(request):
 
 @api_view(['POST'])
 @permission_classes([AllowAny])
+@throttle_classes([LoginThrottle])  # Apply login rate limit
 def login(request):
     """POST /api/auth/login/"""
     serializer = LoginSerializer(data=request.data)
+    throttle_scope = 'login'  # Apply login rate limit
 
     if not serializer.is_valid():
         return error_response(
