@@ -1,9 +1,9 @@
 # documents/admin.py
 
 from django.contrib import admin
-from .models import PDFDocument
+from .models import PDFDocument, UploadBatch
 
-
+admin.site.register(UploadBatch)
 @admin.register(PDFDocument)
 class PDFDocumentAdmin(admin.ModelAdmin):
 

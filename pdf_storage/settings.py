@@ -23,7 +23,31 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = ["*"]  # restrict in production
+ALLOWED_HOSTS = config('ALLOWED_HOSTS').split(',')
+
+# Azure settings
+AZURE_CONNECTION_STRING = config('AZURE_CONNECTION_STRING')
+AZURE_CONTAINER_NAME = config('AZURE_CONTAINER_NAME')
+
+# pdf_storage/settings.py
+
+# Cosmos DB Config (Default to dummy values)
+COSMOS_URI = config('COSMOS_URI')
+COSMOS_KEY = config('COSMOS_KEY')
+COSMOS_DATABASE = config('COSMOS_DATABASE')
+COSMOS_CONTAINER = config('COSMOS_CONTAINER')
+
+WEBHOOK_BASE_URL = config('WEBHOOK_BASE_URL')
+WEBHOOK_SECRET = config('WEBHOOK_SECRET')
+
+# File upload settings
+MAX_UPLOAD_SIZE = 10 * 1024 * 1024     # 10MB per file
+ALLOWED_FILE_TYPES = ['application/pdf']
+
+CORS_ALLOW_ALL_ORIGINS = True           # restrict in production
+
+DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+
 
 
 # Application definition
@@ -37,14 +61,18 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     # Third party
     'rest_framework',
-    'rest_framework.authtoken',
+    'rest_framework_simplejwt.token_blacklist',
     'django_filters',
     'corsheaders',
+    'drf_spectacular',
     # Your apps
+    'authentication',
     'documents',
+    'search',
 ]
 
 MIDDLEWARE = [
+    'pdf_storage.middleware.JSONErrorMiddleware',   # ← first in the list
     'corsheaders.middleware.CorsMiddleware',
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
@@ -96,7 +124,7 @@ DATABASES = {
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
-        'rest_framework.authentication.TokenAuthentication',
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
         'rest_framework.authentication.SessionAuthentication',
     ],
     'DEFAULT_PERMISSION_CLASSES': [
@@ -113,20 +141,38 @@ REST_FRAMEWORK = {
     'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
     'PAGE_SIZE': 20,
 
-    'EXCEPTION_HANDLER': 'documents.exceptions.custom_exception_handler',
+    'EXCEPTION_HANDLER': 'pdf_storage.exceptions.custom_exception_handler',
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+        'rest_framework.throttling.ScopedRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '20/hour',
+        'user': '200/hour',
+        'upload': '50/day',
+        'pdfs': '3/minute',
+        'login': '3/minute',
+    },
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
 
-# Azure settings
-AZURE_CONNECTION_STRING = config('AZURE_CONNECTION_STRING')
-AZURE_CONTAINER_NAME = config('AZURE_CONTAINER_NAME')
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Resume Scoring API',
+    'DESCRIPTION': 'API for uploading CVs and matching against job descriptions',
+    'VERSION': '1.0.0',
+}
 
-# File upload settings
-MAX_UPLOAD_SIZE = 10 * 1024 * 1024     # 10MB per file
-ALLOWED_FILE_TYPES = ['application/pdf']
+# Configure Simple JWT lifetimes & settings
+from datetime import timedelta
 
-CORS_ALLOW_ALL_ORIGINS = True           # restrict in production
-
-DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),       # Short lifetime for security
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),      # Long lifetime for seamless UX
+    'ROTATE_REFRESH_TOKENS': True,                    # Issues a new refresh token on use
+    'BLACKLIST_AFTER_ROTATION': True,                 # Prevents old refresh tokens from being reused
+    'AUTH_HEADER_TYPES': ('Bearer',),                 # Uses "Bearer <token>" instead of "Token <token>"
+}
 
 
 # Password validation

@@ -1,28 +1,27 @@
 # documents/views.py
+from pdf_storage import settings
 
 from rest_framework import viewsets, status, mixins
-from rest_framework.decorators import action, api_view, permission_classes
+from rest_framework.decorators import action, throttle_classes
 from rest_framework.response import Response
-from rest_framework.permissions import AllowAny, IsAuthenticated
-from django.contrib.auth.models import User
-from django.contrib.auth import authenticate
-from rest_framework.authtoken.models import Token
+from rest_framework.permissions import IsAuthenticated
 
 # filtering and searching
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter, OrderingFilter
 from .filters import PDFDocumentFilter
 
-from .models import PDFDocument
+from .models import PDFDocument, UploadBatch
 from .serializers import (
     PDFUploadSerializer,
     PDFDocumentSerializer,
-    PDFDocumentUpdateSerializer,
     DownloadURLSerializer,
+    UploadBatchSerializer,
 )
 from .services.azure_service import azure_service
-
 from .permissions import IsDocumentOwner
+from pdf_storage.responses import success_response, error_response
+from pdf_storage.throttles import PdfThrottle, UploadThrottle
 
 # local testing
 import os
@@ -30,16 +29,14 @@ from django.conf import settings
 
 
 
-class PDFDocumentViewSet(mixins.ListModelMixin,          # GET /api/pdfs/
+class PDFDocumentViewSet(
+    mixins.ListModelMixin,          # GET /api/pdfs/
     mixins.RetrieveModelMixin,      # GET /api/pdfs/{id}/
-    mixins.DestroyModelMixin,       # DELETE /api/pdfs/{id}/
-    mixins.UpdateModelMixin,        # PATCH /api/pdfs/{id}/
     viewsets.GenericViewSet         # base class
     ):
-    permission_classes = [IsAuthenticated]
-    #                         ↑
-    #              Every endpoint here requires login
 
+    permission_classes = [IsAuthenticated] # check if user is authenticated
+    throttle_scope = 'pdfs' # apply rate limiting
     filterset_class = PDFDocumentFilter
 
     filter_backends = [DjangoFilterBackend, SearchFilter, OrderingFilter]
@@ -50,8 +47,6 @@ class PDFDocumentViewSet(mixins.ListModelMixin,          # GET /api/pdfs/
     def get_serializer_class(self):
         if self.action in ['upload', 'test_upload']:
             return PDFUploadSerializer
-        if self.action in ['update', 'partial_update']:
-            return PDFDocumentUpdateSerializer
         if self.action == 'download':
             return DownloadURLSerializer
         return PDFDocumentSerializer
@@ -65,6 +60,59 @@ class PDFDocumentViewSet(mixins.ListModelMixin,          # GET /api/pdfs/
             user=self.request.user,
             is_active=True
         )
+
+    def list(self, request, *args, **kwargs):
+        """
+        GET /api/pdfs/
+        """
+
+        queryset = self.filter_queryset(self.get_queryset())
+
+        page = self.paginate_queryset(queryset)
+
+        # If pagination is enabled
+        if page is not None:
+
+            serializer = self.get_serializer(page, many=True)
+
+            paginated_response = self.get_paginated_response(
+                serializer.data
+            )
+
+            return success_response(
+                data={
+                    'count': paginated_response.data['count'],
+                    'next': paginated_response.data['next'],
+                    'previous': paginated_response.data['previous'],
+                    'documents': paginated_response.data['results'],
+                },
+                message='Documents retrieved successfully.',
+            )
+
+        # If pagination is NOT enabled
+        serializer = self.get_serializer(queryset, many=True)
+
+        return success_response(
+            data={
+                'documents': serializer.data,
+            },
+            message='Documents retrieved successfully.',
+        )
+
+    def retrieve(self, request, *args, **kwargs):
+        """
+        GET /api/pdfs/{id}/
+        """
+
+        instance = self.get_object()
+
+        serializer = self.get_serializer(instance)
+
+        return success_response(
+            data=serializer.data,
+            message='Document retrieved successfully.',
+        )
+
 
     @action(detail=False, methods=['post'], url_path='test-upload')
     def test_upload(self, request):
@@ -154,7 +202,7 @@ class PDFDocumentViewSet(mixins.ListModelMixin,          # GET /api/pdfs/
             'results': results,
         }, status=response_status)
 
-    @action(detail=False, methods=['post'])
+    @action(detail=False, methods=['post'], throttle_classes=[UploadThrottle])
     def upload(self, request):
         """
         POST /api/pdfs/upload/
@@ -168,13 +216,24 @@ class PDFDocumentViewSet(mixins.ListModelMixin,          # GET /api/pdfs/
         serializer = self.get_serializer(data=request.data)
 
         if not serializer.is_valid():
-            return Response(
-                serializer.errors,
-                status=status.HTTP_400_BAD_REQUEST
+            return error_response(
+                errors=serializer.errors,
+                message="Validation failed."
             )
 
         files = serializer.validated_data['files']
-        description = serializer.validated_data.get('description', '')
+        job_description = serializer.validated_data.get('job_description', '')
+        search_all = serializer.validated_data.get('search_all', True)
+
+        is_search_request = bool(job_description.strip())
+
+        batch = None
+        if is_search_request:
+            batch = UploadBatch.objects.create(
+                user=request.user,
+                job_description=job_description,
+                search_all=search_all
+            )
 
         results = []
         success_count = 0
@@ -182,21 +241,29 @@ class PDFDocumentViewSet(mixins.ListModelMixin,          # GET /api/pdfs/
 
         for file in files:
             try:
+                blob_metadata = None
+
+                if batch:
+                    blob_metadata = {
+                        'batch_id': str(batch.id),
+                    }
+
                 # Upload to Azure
                 azure_result = azure_service.upload_file(
                     file=file,
                     user_id=request.user.id,
                     original_filename=file.name,
+                    metadata=blob_metadata
                 )
 
                 # Save metadata to database
                 document = PDFDocument.objects.create(
                     user=request.user,
+                    batch=batch,
                     original_filename=file.name,
                     blob_name=azure_result['blob_name'],
                     azure_url=azure_result['azure_url'],
                     file_size=file.size,
-                    description=description,
                 )
 
                 results.append({
@@ -217,20 +284,47 @@ class PDFDocumentViewSet(mixins.ListModelMixin,          # GET /api/pdfs/
         # Choose response status based on results
         if success_count == 0:
             response_status = status.HTTP_400_BAD_REQUEST
-        elif fail_count > 0:
-            response_status = status.HTTP_207_MULTI_STATUS
-            #                        ↑
-            #              207 = Multi-Status
-            #              Means "some worked, some did not"
-        else:
-            response_status = status.HTTP_201_CREATED
+            return error_response(
+                errors=results,
+                message="All uploads failed.",
+                status_code=response_status
+            )
 
-        return Response({
+        # Build response
+        response_data = {
             'uploaded': success_count,
             'failed': fail_count,
             'total': len(files),
             'results': results,
-        }, status=response_status)
+        }
+
+        if batch and success_count > 0:
+            try:
+                signal_data = {
+                    'batch_id': str(batch.id),
+                    'job_description': job_description,
+                    'search_all': search_all,
+                    'callback_url': f"{settings.WEBHOOK_BASE_URL}/api/search/webhook/",
+                }
+
+                azure_service.upload_signal_file(
+                    batch_id=batch.id,
+                    signal_data=signal_data,
+                )
+
+            except Exception as e:
+                return error_response(
+                    errors={'signal': str(e)},
+                    message='Files uploaded but failed to start processing.',
+                    data=response_data,
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                )
+
+        return success_response(
+            data=response_data,
+            message="Files uploaded with some failures." if fail_count > 0 else "All files uploaded successfully.",
+            status_code=status.HTTP_201_CREATED,
+        )
 
     @action(detail=True, methods=['get'])
     def download(self, request, pk=None):
@@ -244,111 +338,24 @@ class PDFDocumentViewSet(mixins.ListModelMixin,          # GET /api/pdfs/
         #               ↑
         #   get_object() checks that document belongs
         #   to request.user automatically because of get_queryset()
-        #   If not found → 404 automatically
+        if not document:
+            return error_response(
+                errors='Document not found.',
+                message="Document not found.",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
 
         url_data = azure_service.generate_download_url(
             blob_name=document.blob_name,
             expiry_hours=1,
         )
 
-        return Response({
-            **url_data,
-            'filename': document.original_filename,
-        })
-
-    def destroy(self, request, pk=None):
-        """
-        DELETE /api/pdfs/{id}/
-
-        Soft delete — marks as inactive in DB.
-        Also removes from Azure.
-        """
-        document = self.get_object()
-
-        # Delete from Azure first
-        azure_service.delete_file(document.blob_name)
-
-        # Soft delete in database
-        document.is_active = False
-        document.save()
-
-        return Response(
-            {'message': 'Document deleted successfully'},
-            status=status.HTTP_200_OK
+        return success_response(
+            data={
+                **url_data,
+                'filename': document.original_filename,
+            },
+            message="Download URL generated successfully."
         )
-
-    def update(self, request, pk=None, **kwargs):
-        """PATCH /api/pdfs/{id}/ — update description only."""
-        document = self.get_object()
-        serializer = PDFDocumentUpdateSerializer(
-            document,
-            data=request.data,
-            partial=True
-        )
-
-        if serializer.is_valid():
-            serializer.save()
-            return Response(PDFDocumentSerializer(document).data)
-
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-    
-
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def register(request):
-    username = request.data.get('username')
-    password = request.data.get('password')
-    email = request.data.get('email', '')
-
-    if not username or not password:
-        return Response(
-            {'error': 'Username and password required'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    if User.objects.filter(username=username).exists():
-        return Response(
-            {'error': 'Username already taken'},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    user = User.objects.create_user(
-        username=username,
-        password=password,
-        email=email,
-    )
-    token = Token.objects.create(user=user)
-
-    return Response({
-        'token': token.key,
-        'user_id': user.id,
-        'username': user.username,
-    }, status=status.HTTP_201_CREATED)
-
-
-@api_view(['POST'])
-@permission_classes([AllowAny])
-def login_view(request):
-    username = request.data.get('username')
-    password = request.data.get('password')
-
-    user = authenticate(username=username, password=password)
-
-    if not user:
-        return Response(
-            {'error': 'Invalid credentials'},
-            status=status.HTTP_401_UNAUTHORIZED
-        )
-
-    token, created = Token.objects.get_or_create(user=user)
-    return Response({'token': token.key, 'user_id': user.id})
-
-
-@api_view(['POST'])
-def logout_view(request):
-    request.user.auth_token.delete()
-    return Response({'message': 'Logged out successfully'})
-
 
     

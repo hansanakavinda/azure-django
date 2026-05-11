@@ -2,7 +2,7 @@
 
 from rest_framework import serializers
 from django.conf import settings
-from .models import PDFDocument
+from .models import PDFDocument, UploadBatch
 import magic        # pip install python-magic (detects real file type)
 
 
@@ -22,12 +22,16 @@ class PDFUploadSerializer(serializers.Serializer):
             'allow_empty': 'Please provide at least one file.',
         }
     )
-    description = serializers.CharField(
+
+    job_description  = serializers.CharField(
         required=False,
         allow_blank=True,
         default='',
-        max_length=500,
+        max_length=5000,
     )
+
+    search_all = serializers.BooleanField(required=False, default=True)
+
 
     def validate_files(self, files):
         """
@@ -52,7 +56,14 @@ class PDFUploadSerializer(serializers.Serializer):
             # This is more reliable than checking the extension
             file.seek(0)                        # go to start of file
             header = file.read(8)               # read first 8 bytes
+            mime_type = magic.from_buffer(file.read(2048), mime=True)
             file.seek(0)                        # reset back to start
+
+            if mime_type not in settings.ALLOWED_FILE_TYPES:
+                file_errors.append(
+                    f"Invalid file type: {mime_type}. "
+                    "Please upload PDF files only."
+                )
 
             # PDF files always start with %PDF
             if not header.startswith(b'%PDF'):
@@ -77,6 +88,10 @@ class PDFUploadSerializer(serializers.Serializer):
 
         return files
 
+class UploadBatchSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = UploadBatch
+        fields = ['id', 'job_description', 'search_all']
 
 class PDFDocumentSerializer(serializers.ModelSerializer):
     """
@@ -99,7 +114,6 @@ class PDFDocumentSerializer(serializers.ModelSerializer):
             'file_size',
             'file_size_kb',
             'file_size_mb',
-            'description',
             'uploaded_at',
             'updated_at',
             'owner',
@@ -108,18 +122,8 @@ class PDFDocumentSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = [
             'id', 'original_filename', 'file_size',
-            'uploaded_at', 'updated_at', 'owner', 'description'
+            'uploaded_at', 'updated_at', 'owner',
         ]
-
-
-class PDFDocumentUpdateSerializer(serializers.ModelSerializer):
-    """
-    Used only for updating — user can only change description.
-    """
-
-    class Meta:
-        model = PDFDocument
-        fields = ['description']
 
 
 class DownloadURLSerializer(serializers.Serializer):
