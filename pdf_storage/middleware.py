@@ -42,7 +42,6 @@ class JSONErrorMiddleware:
             400: 'Bad request.',
             403: 'You do not have permission to access this.',
             404: 'The requested endpoint does not exist.',
-            405: 'Method not allowed.',
             500: 'An unexpected server error occurred.',
         }
 

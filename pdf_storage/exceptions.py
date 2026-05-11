@@ -70,7 +70,6 @@ def _get_error_message(response):
         405: 'This HTTP method is not allowed on this endpoint.',
         408: 'Request timed out.',
         429: 'Too many requests. Please slow down.',
-        500: 'Internal server error.',
     }
 
     return default_messages.get(status_code, f'Error {status_code}')

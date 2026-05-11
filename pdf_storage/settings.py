@@ -165,7 +165,7 @@ SPECTACULAR_SETTINGS = {
 from datetime import timedelta
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=15),   # Short lifetime for security
+    'ACCESS_TOKEN_LIFETIME': timedelta(days=1),       # Short lifetime for security
     'REFRESH_TOKEN_LIFETIME': timedelta(days=7),      # Long lifetime for seamless UX
     'ROTATE_REFRESH_TOKENS': True,                    # Issues a new refresh token on use
     'BLACKLIST_AFTER_ROTATION': True,                 # Prevents old refresh tokens from being reused
