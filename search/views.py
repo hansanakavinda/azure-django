@@ -129,6 +129,97 @@ def webhook_receive(request):
         status_code=status.HTTP_201_CREATED,
     )
 
+@api_view(['POST'])
+@permission_classes([AllowAny])
+def test_webhook_receive(request):
+    """
+    POST /api/search/test-webhook/
+
+    Azure calls this when ranking is complete.
+    Saves candidate results to SearchResult table.
+    """
+    if not verify_webhook_signature(request, settings.WEBHOOK_SECRET):
+        return error_response(
+            message='Invalid signature.',
+            status_code=status.HTTP_401_UNAUTHORIZED,
+        )
+    serializer = WebhookPayloadSerializer(data=request.data)
+
+    if not serializer.is_valid():
+        return error_response(
+            errors=serializer.errors,
+            message='Invalid webhook payload.',
+        )
+
+    data = serializer.validated_data
+    batch_id = data['batch_id']
+    webhook_status = data['status']
+    
+    # Find the batch
+    try:
+        batch = UploadBatch.objects.get(id=batch_id)
+    except UploadBatch.DoesNotExist:
+        return error_response(
+            message='Batch not found.',
+            status_code=status.HTTP_404_NOT_FOUND,
+        )
+
+    # Prevent duplicate processing
+    if SearchResult.objects.filter(batch=batch).exists():
+        return success_response(
+            message='Results already saved for this batch.',
+        )
+
+    # Handle failure
+    if webhook_status == 'failed':
+        error_message = data.get('error_message', 'Processing failed.')
+
+        logger.error(
+            f"Batch {batch_id} processing failed: {error_message}"
+        )
+
+        return success_response(
+            message='Failure recorded.',
+            data={'error_message': error_message},
+        )
+
+    # Handle success — save results
+    results = data.get('results', [])
+
+    if not results:
+        return error_response(
+            message='No results in webhook payload.',
+            status_code=status.HTTP_400_BAD_REQUEST,
+        )
+
+    # Sort by score descending
+    results.sort(key=lambda x: float(x['score']), reverse=True)
+
+    # Save each result with rank
+    created_results = []
+
+    for rank, result in enumerate(results, 1):
+        search_result = SearchResult.objects.create(
+            batch=batch,
+            user=batch.user,
+            candidate_id=result['candidate_id'],
+            score=float(result['score']),
+            rank=rank,
+        )
+        created_results.append(search_result)
+
+    logger.info(
+        f"Batch {batch_id} completed. {len(created_results)} results saved."
+    )
+
+    return success_response(
+        data={
+            'batch_id': str(batch.id),
+            'results_saved': len(created_results),
+        },
+        message='Results received and saved successfully.',
+        status_code=status.HTTP_201_CREATED,
+    )
 
 class SearchResultViewSet(
     mixins.ListModelMixin,

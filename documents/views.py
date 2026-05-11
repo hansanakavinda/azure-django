@@ -133,6 +133,18 @@ class PDFDocumentViewSet(
             )
 
         files = serializer.validated_data['files']
+        job_description = serializer.validated_data.get('job_description', '')
+        search_all = serializer.validated_data.get('search_all', True)
+
+        is_search_request = bool(job_description.strip())
+
+        batch = None
+        if is_search_request:
+            batch = UploadBatch.objects.create(
+                user=request.user,
+                job_description=job_description,
+                search_all=search_all
+            )
         results = []
         success_count = 0
         fail_count = 0
@@ -167,6 +179,17 @@ class PDFDocumentViewSet(
                         #   important for large files
                         #   avoids loading entire file into memory
 
+                document = PDFDocument.objects.create(
+                    user=request.user,
+                    batch=batch,
+                    original_filename=file.name,
+                    blob_name=final_filename,
+                    azure_url=request.build_absolute_uri(
+                        f"{settings.MEDIA_URL}{final_filename}"
+                    ),
+                    file_size=file.size,
+                )
+
                 results.append({
                     'filename': file.name,
                     'status': 'success',
@@ -176,6 +199,7 @@ class PDFDocumentViewSet(
                         f"{settings.MEDIA_URL}{final_filename}"
                     ),
                     'file_size': file.size,
+                    'batch_id': str(batch.id) if batch else None,
                 })
                 success_count += 1
 

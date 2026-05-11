@@ -10,9 +10,8 @@ router.register(r'', views.SearchResultViewSet, basename='search-result')
 urlpatterns = [
     path('results/', include(router.urls)),
     path('webhook/', views.webhook_receive, name='search-webhook'), 
+    path('test-webhook/', views.test_webhook_receive, name='test-search-webhook'),
     path('candidates/<str:candidate_id>/', views.retrieve_candidate, name='candidate-detail'),
     path('test-candidates/', views.test_list_candidates, name='test-candidate-list'),
     path('test-candidates/<str:candidate_id>/', views.test_retrieve_candidate, name='test-candidate-detail'),
-    
-    
 ]
