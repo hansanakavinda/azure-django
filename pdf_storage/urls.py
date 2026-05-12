@@ -18,16 +18,21 @@ Including another URLconf
 
 from django.contrib import admin
 from django.urls import path, include
-
-from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+from django.conf import settings
 
 API_V1 = 'api/v1/'
 
 urlpatterns = [
-    # path('admin/', admin.site.urls), # Optional: Enable Django admin if needed
     path(f'{API_V1}auth/', include('authentication.urls')),
     path(f'{API_V1}pdfs/', include('documents.urls')),
     path(f'{API_V1}search/', include('search.urls')),
-    path(f'{API_V1}schema/', SpectacularAPIView.as_view(), name='schema'),
-    path(f'{API_V1}docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
 ]
+
+if settings.DEBUG:
+    from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+    
+    urlpatterns += [
+        path("admin/",              admin.site.urls),
+        path(f"{API_V1}/schema/",   SpectacularAPIView.as_view(),                      name="schema"),
+        path(f"{API_V1}/docs/",     SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    ]

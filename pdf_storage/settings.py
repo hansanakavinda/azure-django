@@ -23,6 +23,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
 
+REGISTRATION_KEY = config('REGISTRATION_KEY')
+
 ALLOWED_HOSTS = config('ALLOWED_HOSTS').split(',')
 
 # Azure settings
@@ -159,11 +161,11 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.ScopedRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '20/hour',
+        'anon': '10/hour',
         'user': '200/hour',
         'upload': '50/day',
         'pdfs': '10/minute',
-        'login': '10/minute',
+        'login': '10/hour',
     },
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
