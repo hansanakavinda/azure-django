@@ -20,6 +20,7 @@ class CosmosCandidateService:
             )
             self.database = self.client.get_database_client(settings.COSMOS_DATABASE)
             self.container = self.database.get_container_client(settings.COSMOS_CONTAINER)
+            self.partition_key_path = settings.PARTITION_KEY_PATH
         except Exception as e:
             logger.warning(f"CosmosDB Client initialization failed (Using dummy settings?): {e}")
             self.container = None
