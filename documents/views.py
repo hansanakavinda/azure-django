@@ -328,7 +328,7 @@ class PDFDocumentViewSet(
                     'batch_id': str(batch.id),
                     'job_description': job_description,
                     'search_all': search_all,
-                    'callback_url': f"{settings.WEBHOOK_BASE_URL}/api/search/webhook/",
+                    'callback_url': f"{settings.WEBHOOK_BASE_URL}api/v1/search/webhook/",
                 }
 
                 azure_service.upload_signal_file(
