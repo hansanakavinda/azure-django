@@ -19,14 +19,20 @@ class AzureStorageService:
     """
 
     def __init__(self):
-        self.connection_string = settings.AZURE_CONNECTION_STRING
-        self.container_name = settings.AZURE_CONTAINER_NAME
-        self.client = BlobServiceClient.from_connection_string(
-            self.connection_string
-        )
-        self.container_client = self.client.get_container_client(
-            self.container_name
-        )
+        try:
+            self.connection_string = settings.AZURE_CONNECTION_STRING
+            self.container_name = settings.AZURE_CONTAINER_NAME
+            self.client = BlobServiceClient.from_connection_string(
+                self.connection_string
+            )
+            self.container_client = self.client.get_container_client(
+                self.container_name
+            )
+        except Exception as e:
+            # Log the error but don't crash the app on startup
+            print(f"Azure Blob Storage initialization failed: {e}")
+            self.client = None
+            self.container_client = None
 
     def _generate_blob_name(self, user_id, original_filename):
         """
