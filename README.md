@@ -1,34 +1,73 @@
+# Resume Scoring API
+
+This project exposes a versioned API under `/api/v1/`.
+
+## Common Response Format
+
+All endpoints use the same envelope:
+
+```json
+{
+  "success": true,
+  "message": "...",
+  "data": {},
+  "errors": null
+}
+```
+
+On failures, `success` is `false` and `errors` contains the validation or runtime details.
+
+## Authentication
+
+JWT authentication is used throughout the API.
+
+```
+Authorization: Bearer <access_token>
+```
+
+## API Docs
+
+| Method | Endpoint | Purpose |
+|--------|----------|---------|
+| GET | `/api/v1/schema/` | OpenAPI schema |
+| GET | `/api/v1/docs/` | Swagger UI |
+
 # Authentication API
 
 ## Endpoints
 
 | Method | Endpoint | Auth | Purpose |
 |--------|----------|------|---------|
-| POST | `/api/auth/register/` | No | Create new user account |
-| POST | `/api/auth/login/` | No | Get JWT tokens |
-| POST | `/api/auth/logout/` | Yes | Blacklist refresh token |
-| POST | `/api/auth/token/refresh/` | No | Get new access token |
+| POST | `/api/v1/auth/register/` | No | Create a new user account |
+| POST | `/api/v1/auth/login/` | No | Get JWT tokens |
+| POST | `/api/v1/auth/logout/` | Yes | Blacklist a refresh token |
+| POST | `/api/v1/auth/token/refresh/` | No | Refresh JWT tokens |
 
----
+## POST /api/v1/auth/register/
 
-## POST /api/auth/register/
+Request body:
 
-**Request Body:**
 ```json
 {
-  "username": "string (unique, max 150 chars)",
-  "password": "string (min 8 chars)",
-  "email": "string (optional)"
+  "username": "string",
+  "email": "string (optional)",
+  "password": "string",
+  "confirm_password": "string"
 }
 ```
 
-**Returns:** `user_id`, `username`, `access` token, `refresh` token
+Notes:
 
----
+- `username` must start with a letter and can contain letters, numbers, underscores, and hyphens.
+- `password` must be at least 8 characters and include uppercase, lowercase, a number, and a special character.
+- `confirm_password` must match `password`.
 
-## POST /api/auth/login/
+Returns `user_id`, `username`, `access`, and `refresh` in `data`.
 
-**Request Body:**
+## POST /api/v1/auth/login/
+
+Request body:
+
 ```json
 {
   "username": "string",
@@ -36,42 +75,31 @@
 }
 ```
 
-**Returns:** `user_id`, `username`, `access` token, `refresh` token
+Returns `user_id`, `username`, `access`, and `refresh` in `data`.
 
----
+## POST /api/v1/auth/logout/
 
-## POST /api/auth/logout/
+Request body:
 
-**Request Body:**
 ```json
 {
   "refresh": "string"
 }
 ```
 
-**Returns:** Success message
+Blacklists the refresh token and returns a success message.
 
----
+## POST /api/v1/auth/token/refresh/
 
-## POST /api/auth/token/refresh/
+Request body:
 
-**Request Body:**
 ```json
 {
   "refresh": "string"
 }
 ```
 
-**Returns:** New `access` token, `refresh` token
-
----
-
-## Authentication
-
-Use the `access` token in header:
-```
-Authorization: Bearer <access_token>
-```
+Returns refreshed JWT data in `data`. Because refresh rotation is enabled, the response may include a new `refresh` token as well as a new `access` token.
 
 # Documents API
 
@@ -79,68 +107,80 @@ Authorization: Bearer <access_token>
 
 | Method | Endpoint | Auth | Purpose |
 |--------|----------|------|---------|
-| GET | `/api/pdfs/` | Yes | List user's documents |
-| GET | `/api/pdfs/{id}/` | Yes | Get document details |
-| POST | `/api/pdfs/upload/` | Yes | Upload PDF files |
-| GET | `/api/pdfs/{id}/download/` | Yes | Get temporary download URL |
+| GET | `/api/v1/pdfs/` | Yes | List the current user's documents |
+| GET | `/api/v1/pdfs/{id}/` | Yes | Get document details |
+| POST | `/api/v1/pdfs/upload/` | Yes | Upload PDF files |
+| GET | `/api/v1/pdfs/{id}/download/` | Yes | Get a temporary download URL |
 
----
+## GET /api/v1/pdfs/
 
-## GET /api/pdfs/
+Lists the authenticated user's active documents.
 
-List all user documents with optional filtering and searching.
+Query parameters:
 
-**Query Parameters:**
 ```
-?filename=<string>          # Search in filename (case insensitive)
-?date_from=<YYYY-MM-DD>     # Uploaded after this date
-?date_to=<YYYY-MM-DD>       # Uploaded before this date
+?filename=<string>          # Case-insensitive filename match
+?date_from=<YYYY-MM-DD>     # Uploaded on or after this date
+?date_to=<YYYY-MM-DD>       # Uploaded on or before this date
 ?size_min=<bytes>           # Minimum file size
 ?size_max=<bytes>           # Maximum file size
-?search=<string>            # Search in filename or description
-?ordering=<field>           # Sort by: uploaded_at, file_size, original_filename
+?search=<string>            # Search filename and description
+?ordering=<field>           # uploaded_at, file_size, original_filename
+?page=<int>                 # DRF page number pagination
 ```
 
-**Returns:** `documents[]`, `count`, pagination info
+Response `data` includes `count`, `next`, `previous`, and `documents`.
 
----
+Each document includes:
 
-## GET /api/pdfs/{id}/
+- `id`
+- `original_filename`
+- `file_size`
+- `file_size_kb`
+- `file_size_mb`
+- `uploaded_at`
+- `updated_at`
+- `owner`
 
-Get details of a specific document.
+## GET /api/v1/pdfs/{id}/
 
-**Returns:** `id`, `original_filename`, `file_size`, `file_size_kb`, `file_size_mb`, `uploaded_at`, `updated_at`, `owner`
+Returns a single document for the authenticated user. The payload uses the same document fields listed above.
 
----
+## POST /api/v1/pdfs/upload/
 
-## POST /api/pdfs/upload/
+Uploads one or more PDF files as `multipart/form-data`.
 
-Upload one or more PDF files.
+Request fields:
 
-**Request Body (multipart/form-data):**
+```text
+files: File[]             # Required, max 20 files
+job_description: string   # Optional, max 5000 chars
+search_all: boolean       # Optional, default true
 ```
-files: File[] (max 20 files, must be valid PDFs)
-job_description: string (optional, max 5000 chars)
-search_all: boolean (optional, default: true)
-```
 
-**Returns:** `uploaded`, `failed`, `total`, `results[]` with status and details for each file
+Validations enforced by the API:
 
-**Validations:**
-- Max 20 files per request
-- Max file size: configured in settings
-- Must be valid PDF files (checked by file header)
-- Filename max 255 characters
+- Maximum of 20 files per request.
+- Maximum file size is configured in settings.
+- Files must be valid PDFs, checked by file header and MIME type.
+- Filenames must be 255 characters or fewer.
 
----
+Response `data` includes `uploaded`, `failed`, `total`, and `results`.
 
-## GET /api/pdfs/{id}/download/
+If `job_description` is provided, an upload batch is created and the backend sends a processing signal with a callback URL to `/api/v1/search/webhook/`.
 
-Get a temporary signed URL to download a PDF file.
+## GET /api/v1/pdfs/{id}/download/
 
-**Returns:** `download_url`, `expires_at`, `expires_in_hours`, `filename`
+Returns a temporary signed download URL for the file.
 
-**Note:** URL expires after 1 hour
+Response fields:
+
+- `download_url`
+- `expires_at`
+- `expires_in_hours`
+- `filename`
+
+The URL expires after 1 hour.
 
 # Search API
 
@@ -148,93 +188,95 @@ Get a temporary signed URL to download a PDF file.
 
 | Method | Endpoint | Auth | Purpose |
 |--------|----------|------|---------|
-| GET | `/api/search/results/` | Yes | List search results |
-| GET | `/api/search/results/{id}/` | Yes | Get search result detail |
-| GET | `/api/search/candidates/{candidate_id}/` | Yes | Get candidate profile |
-| GET | `/api/search/test-candidates/` | Yes | List all candidates |
-| GET | `/api/search/test-candidates/{candidate_id}/` | Yes | Get candidate details (test) |
-| POST | `/api/search/webhook/` | No | Receive ranking results from Azure |
+| GET | `/api/v1/search/results/` | Yes | List the current user's search results |
+| GET | `/api/v1/search/results/{id}/` | Yes | Get search result details |
+| GET | `/api/v1/search/candidates/{candidate_id}/` | Yes | Get a candidate profile if it appears in the user's results |
+| GET | `/api/v1/search/test-candidates/` | Yes | List all candidates in Cosmos DB |
+| GET | `/api/v1/search/test-candidates/{candidate_id}/` | Yes | Get a candidate profile by ID |
+| POST | `/api/v1/search/webhook/` | No | Receive ranking results from Azure |
 
----
+## GET /api/v1/search/results/
 
-## GET /api/search/results/
+Lists the authenticated user's search results.
 
-List search results for the authenticated user.
+Query parameters:
 
-**Query Parameters:**
 ```
-?batch_id=<uuid>    # Filter by specific upload batch
-?limit=<int>        # Results per page
-?offset=<int>       # Pagination offset
+?batch_id=<uuid>    # Filter by upload batch
+?page=<int>         # DRF page number pagination
 ```
 
-**Returns:** `results[]` with `id`, `batch_id`, `candidate_id`, `score`, `rank`, `received_at`
+Response `data` includes `count`, `next`, `previous`, and `results`.
 
----
+Each result includes:
 
-## GET /api/search/results/{id}/
+- `id`
+- `batch_id`
+- `candidate_id`
+- `score`
+- `rank`
+- `received_at`
 
-Get details of a specific search result including batch information.
+## GET /api/v1/search/results/{id}/
 
-**Returns:** `id`, `batch_id`, `job_description`, `search_all`, `candidate_id`, `score`, `rank`, `received_at`
+Returns a single search result with batch context.
 
----
+The detail payload adds:
 
-## GET /api/search/candidates/{candidate_id}/
+- `job_description`
+- `search_all`
 
-Fetch full candidate profile from database.
+## GET /api/v1/search/candidates/{candidate_id}/
 
-**Security:** User must have a search result with this candidate_id in their results
+Returns a full candidate profile from Cosmos DB.
 
-**Returns:** Full candidate profile data from Cosmos DB
+Access is restricted to users who already have that `candidate_id` in one of their search results.
 
----
+## GET /api/v1/search/test-candidates/
 
-## GET /api/search/test-candidates/
+Returns a paginated list of candidates from Cosmos DB for testing.
 
-List all candidates in database (paginated).
+Query parameters:
 
-**Query Parameters:**
 ```
-?limit=<int>            # Results per page (default: 10)
-?page_token=<string>    # Token for next page
+?limit=<int>         # Optional page size, default 10
+?page_token=<string> # Optional continuation token
 ```
 
-**Returns:** `candidates[]`, `next_page_token`
+Response `data` includes `candidates` and `next_page_token`.
 
----
+## GET /api/v1/search/test-candidates/{candidate_id}/
 
-## GET /api/search/test-candidates/{candidate_id}/
+Returns a single candidate profile from Cosmos DB using a direct point read.
 
-Get candidate details by ID (test endpoint).
+## POST /api/v1/search/webhook/
 
-**Returns:** Full candidate profile data from Cosmos DB
+Webhook endpoint called by Azure when ranking completes.
 
----
+Authentication is based on the `X-Webhook-Signature` header and the shared webhook secret.
 
-## POST /api/search/webhook/
+Request body:
 
-Webhook endpoint called by Azure after ranking is complete.
-
-**Authentication:** Signature verified using shared secret
-
-**Request Body:**
 ```json
 {
   "batch_id": "uuid",
-  "status": "complete|failed",
-  "error_message": "string (if failed)",
+  "status": "complete",
+  "error_message": "string",
   "results": [
     {
       "candidate_id": "string",
-      "score": "0.0 to 1.0"
+      "score": 0.95
     }
   ]
 }
 ```
 
-**Returns:** Results saved count and batch info
+Notes:
 
-**Note:** Automatically ranks results by score (highest first) and saves to database
+- `status` must be `complete` or `failed`.
+- `score` must be a number between 0 and 1.
+- Results are sorted by score descending before being saved.
+
+The response reports how many results were saved and which batch was processed.
 
 

@@ -18,17 +18,21 @@ Including another URLconf
 
 from django.contrib import admin
 from django.urls import path, include
-
-from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
 from django.conf import settings
-from django.conf.urls.static import static
+
+API_V1 = 'api/v1/'
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
-    path('api/auth/', include('authentication.urls')),
-    path('api/pdfs/', include('documents.urls')),
-    path('api/search/', include('search.urls')),
-    path('api-auth/', include('rest_framework.urls')),
-    path('api/schema/', SpectacularAPIView.as_view(), name='schema'),
-    path('api/docs/', SpectacularSwaggerView.as_view(url_name='schema'), name='swagger-ui'),
-] + static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
+    path(f'{API_V1}auth/', include('authentication.urls')),
+    path(f'{API_V1}pdfs/', include('documents.urls')),
+    path(f'{API_V1}search/', include('search.urls')),
+]
+
+if settings.DEBUG:
+    from drf_spectacular.views import SpectacularAPIView, SpectacularSwaggerView
+    
+    urlpatterns += [
+        path("admin/",              admin.site.urls),
+        path(f"{API_V1}/schema/",   SpectacularAPIView.as_view(),                      name="schema"),
+        path(f"{API_V1}/docs/",     SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
+    ]

@@ -5,6 +5,8 @@ from rest_framework import serializers
 from django.contrib.auth.models import User
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
+from django.conf import settings
+
 
 
 class RegisterSerializer(serializers.Serializer):
@@ -25,6 +27,21 @@ class RegisterSerializer(serializers.Serializer):
     confirm_password = serializers.CharField(
         write_only=True,
     )
+
+    registration_key = serializers.CharField(
+        write_only=True,
+    )
+
+    def validate_registration_key(self, value):
+        expected = settings.REGISTRATION_KEY
+        
+        if not expected:
+            raise serializers.ValidationError("Registration is currently closed.")
+        
+        if value != expected:
+            raise serializers.ValidationError("Invalid registration key.")
+        
+        return value
 
     def validate_username(self, value):
         """

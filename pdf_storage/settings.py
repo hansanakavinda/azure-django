@@ -23,6 +23,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 SECRET_KEY = config('SECRET_KEY')
 DEBUG = config('DEBUG', default=False, cast=bool)
 
+REGISTRATION_KEY = config('REGISTRATION_KEY')
+
 ALLOWED_HOSTS = config('ALLOWED_HOSTS').split(',')
 
 # Azure settings
@@ -45,10 +47,21 @@ WEBHOOK_SECRET = config('WEBHOOK_SECRET')
 MAX_UPLOAD_SIZE = 10 * 1024 * 1024     # 10MB per file
 ALLOWED_FILE_TYPES = ['application/pdf']
 
-CORS_ALLOW_ALL_ORIGINS = True           # restrict in production
+CORS_ALLOW_ALL_ORIGINS = True if DEBUG else False 
 
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
+if not DEBUG:
+    SECURE_SSL_REDIRECT = True
+    SECURE_HSTS_SECONDS = 31536000
+    SECURE_HSTS_INCLUDE_SUBDOMAINS = True
+    SECURE_HSTS_PRELOAD = True
+    SECURE_CONTENT_TYPE_NOSNIFF = True
+    X_FRAME_OPTIONS = "DENY"
+    SESSION_COOKIE_SECURE = True
+    CSRF_COOKIE_SECURE = True
+
+    CORS_ALLOWED_ORIGINS = config('CORS_ALLOWED_ORIGINS').split(',')
 
 
 # Application definition
@@ -103,7 +116,6 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'pdf_storage.wsgi.application'
 
-# Add these at the top of your settings.py
 
 from urllib.parse import urlparse, parse_qsl
 
@@ -149,11 +161,11 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.ScopedRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '20/hour',
+        'anon': '10/hour',
         'user': '200/hour',
         'upload': '50/day',
-        'pdfs': '3/minute',
-        'login': '3/minute',
+        'pdfs': '10/minute',
+        'login': '10/hour',
     },
     'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
 }
