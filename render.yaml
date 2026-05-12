@@ -1,0 +1,15 @@
+# render.yaml
+
+services:
+  - type: web
+    name: cv-matching-api
+    runtime: python
+    buildCommand: "pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate"
+    startCommand: "gunicorn pdf_storage.wsgi:application --bind 0.0.0.0:8000 --workers 3"
+    envVars:
+      - key: DJANGO_SETTINGS_MODULE
+        value: pdf_storage.settings
+      - key: DEBUG
+        value: False
+      - key: PYTHON_VERSION
+        value: 3.13.0
