@@ -181,15 +181,30 @@ SIMPLE_JWT = {
 
 AUTH_PASSWORD_VALIDATORS = [
     {
+        # Password cannot be too similar to username/email
         'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
+        'OPTIONS': {
+            'user_attributes': ('username', 'email'),
+            'max_similarity': 0.5,
+            #                    ↑
+            # 0.5 means if password is more than 50% similar
+            # to username or email it is rejected
+        }
     },
     {
+        # Minimum length (we also check in serializer but belt and suspenders)
         'NAME': 'django.contrib.auth.password_validation.MinimumLengthValidator',
+        'OPTIONS': {
+            'min_length': 8,
+        }
     },
     {
+        # Rejects common passwords like "password123", "qwerty" etc.
+        # Django ships with a list of 20,000 common passwords
         'NAME': 'django.contrib.auth.password_validation.CommonPasswordValidator',
     },
     {
+        # Password cannot be entirely numeric
         'NAME': 'django.contrib.auth.password_validation.NumericPasswordValidator',
     },
 ]
